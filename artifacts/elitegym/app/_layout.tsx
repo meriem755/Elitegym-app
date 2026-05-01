@@ -30,20 +30,26 @@ function RootLayoutNav() {
     const inLogin = segments[0] === "login";
     const inCoach = segments[0] === "coach";
     const inAdmin = segments[0] === "admin";
+    const inLanding = segments[0] === undefined || segments[0] === "";
 
     if (!user) {
-      if (!inLogin) router.replace("/login");
-    } else if (user.role === "administrateur" || user.role === "gerant") {
+      // Public: allow landing page and login
+      return;
+    }
+
+    if (user.role === "administrateur" || user.role === "gerant") {
       if (!inAdmin) router.replace("/admin");
     } else if (user.role === "coach") {
       if (!inCoach) router.replace("/coach");
     } else {
+      // membre / receptionniste
       if (!inTabs) router.replace("/(tabs)");
     }
   }, [user, isLoading]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="index" />
       <Stack.Screen name="login" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="coach" />
