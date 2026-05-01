@@ -8,12 +8,12 @@ const router = Router();
 router.post("/login", async (req, res) => {
   const { telephone, mot_de_passe } = req.body;
   if (!telephone || !mot_de_passe) {
-    return res.status(400).json({ error: "Téléphone et mot de passe requis" });
+    return res.status(400).json({ error: "Téléphone/email et mot de passe requis" });
   }
   try {
     const [rows]: any = await pool.query(
-      "SELECT * FROM utilisateur WHERE telephone = ? AND statut = 1",
-      [telephone]
+      "SELECT * FROM utilisateur WHERE (telephone = ? OR email = ?) AND statut = 1",
+      [telephone, telephone]
     );
     if (!rows.length) {
       return res.status(401).json({ error: "Identifiants incorrects" });

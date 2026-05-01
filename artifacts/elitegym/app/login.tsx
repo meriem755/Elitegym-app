@@ -73,12 +73,13 @@ export default function LoginScreen() {
         <Text style={[styles.title, { color: colors.foreground }]}>Connexion</Text>
 
         <EliteInput
-          label="Numéro de téléphone"
-          placeholder="+213..."
+          label="Téléphone ou Email"
+          placeholder="+213... ou admin@elitegym.dz"
           value={telephone}
           onChangeText={setTelephone}
-          keyboardType="phone-pad"
+          keyboardType="email-address"
           autoCapitalize="none"
+          autoCorrect={false}
         />
         <EliteInput
           label="Mot de passe"

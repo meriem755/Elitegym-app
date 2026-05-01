@@ -7,6 +7,7 @@ import abonnementsRouter from "./abonnements.js";
 import coachsRouter from "./coachs.js";
 import messagesRouter from "./messages.js";
 import adminRouter from "./admin.js";
+import statsRouter from "./stats.js";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use("/abonnements", abonnementsRouter);
 router.use("/coachs", coachsRouter);
 router.use("/messages", messagesRouter);
 router.use("/admin", adminRouter);
+router.use("/stats", statsRouter);
 
 export default router;
