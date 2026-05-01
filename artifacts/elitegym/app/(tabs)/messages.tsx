@@ -1,15 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, RefreshControl, Platform, TextInput, TouchableOpacity, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFocusEffect } from "expo-router";
 import { useColors } from "@/hooks/useColors";
 import { api } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useNotifs } from "@/lib/notifications";
 import { Feather } from "@expo/vector-icons";
 
 export default function MessagesScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { notifs: wsNotifs, markAllRead } = useNotifs();
   const [notifications, setNotifications] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
@@ -24,6 +27,33 @@ export default function MessagesScreen() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Mark all as read when this tab gains focus
+  useFocusEffect(
+    React.useCallback(() => {
+      markAllRead();
+    }, [markAllRead])
+  );
+
+  // Show newly arrived WS notifications at the top
+  useEffect(() => {
+    if (wsNotifs.length > 0) {
+      const fresh = wsNotifs.map((n) => ({
+        id_notif: n.id,
+        contenu: n.contenu,
+        type_notif: n.type_notif,
+        date_envoi: new Date(n.at).toISOString(),
+        statut: "recu",
+        _live: true,
+      }));
+      setNotifications((prev) => {
+        const existingIds = new Set(prev.map((p) => p.id_notif));
+        const newOnes = fresh.filter((f) => !existingIds.has(f.id_notif));
+        return newOnes.length > 0 ? [...newOnes, ...prev] : prev;
+      });
+    }
+  }, [wsNotifs]);
+
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
   const handleSend = async () => {
@@ -68,10 +98,25 @@ export default function MessagesScreen() {
         ) : (
           notifications.map((n: any) => {
             const clr = typeColors[n.type_notif] || colors.primary;
+            const key = n.id_notification ?? n.id_notif ?? Math.random().toString();
+            const isLive = !!n._live;
             return (
-              <View key={n.id_notification} style={[styles.notifCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View key={key} style={[
+                styles.notifCard,
+                {
+                  backgroundColor: isLive ? clr + "10" : colors.card,
+                  borderColor: isLive ? clr + "60" : colors.border,
+                  borderWidth: isLive ? 1.5 : 1,
+                }
+              ]}>
                 <View style={[styles.notifDot, { backgroundColor: clr }]} />
                 <View style={{ flex: 1 }}>
+                  {isLive && (
+                    <View style={[styles.liveBadge, { backgroundColor: clr }]}>
+                      <View style={styles.liveDot} />
+                      <Text style={styles.liveText}>Nouveau</Text>
+                    </View>
+                  )}
                   <Text style={[styles.notifContent, { color: colors.foreground }]}>{n.contenu}</Text>
                   <Text style={[styles.notifDate, { color: colors.mutedForeground }]}>
                     {new Date(n.date_envoi).toLocaleDateString("fr-FR")}
@@ -128,6 +173,18 @@ const styles = StyleSheet.create({
   notifDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5 },
   notifContent: { fontSize: 14, lineHeight: 20 },
   notifDate: { fontSize: 12, marginTop: 4 },
+  liveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    gap: 5,
+    marginBottom: 6,
+  },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#fff" },
+  liveText: { color: "#fff", fontSize: 10, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 },
   inputBar: {
     flexDirection: "row",
     alignItems: "flex-end",

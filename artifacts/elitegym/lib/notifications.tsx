@@ -1,5 +1,6 @@
 import React, {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useRef,
@@ -84,9 +85,9 @@ export function NotifProvider({ children }: { children: ReactNode }) {
 
   const unread = notifs.filter((n) => !n.read).length;
 
-  function markAllRead() {
+  const markAllRead = useCallback(() => {
     setNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
-  }
+  }, []);
 
   return (
     <NotifContext.Provider value={{ notifs, unread, markAllRead }}>

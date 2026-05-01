@@ -5,8 +5,45 @@ import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
-import { Platform, StyleSheet, View, useColorScheme } from "react-native";
+import { Platform, StyleSheet, View, Text, useColorScheme } from "react-native";
 import { useColors } from "@/hooks/useColors";
+import { useNotifs } from "@/lib/notifications";
+
+function NotifBadge({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <View style={badge.wrap}>
+      <Text style={badge.text}>{count > 99 ? "99+" : count}</Text>
+    </View>
+  );
+}
+
+const badge = StyleSheet.create({
+  wrap: {
+    position: "absolute",
+    top: -5,
+    right: -8,
+    backgroundColor: "#E63946",
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: "#fff",
+  },
+  text: { color: "#fff", fontSize: 10, fontWeight: "900" },
+});
+
+function MessageIcon({ color, unread }: { color: string; unread: number }) {
+  return (
+    <View>
+      <Feather name="message-square" size={22} color={color} />
+      <NotifBadge count={unread} />
+    </View>
+  );
+}
 
 function NativeTabLayout() {
   return (
@@ -53,6 +90,7 @@ function ClassicTabLayout() {
   const isDark = colorScheme === "dark";
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
+  const { unread } = useNotifs();
 
   return (
     <Tabs
@@ -138,9 +176,11 @@ function ClassicTabLayout() {
         name="messages"
         options={{
           title: "Messages",
+          tabBarBadge: unread > 0 ? (unread > 99 ? "99+" : unread) : undefined,
+          tabBarBadgeStyle: { backgroundColor: "#E63946", fontSize: 10, fontWeight: "900" },
           tabBarIcon: ({ color }) => isIOS
             ? <SymbolView name="message" tintColor={color} size={22} />
-            : <Feather name="message-square" size={22} color={color} />,
+            : <MessageIcon color={color} unread={0} />,
         }}
       />
       <Tabs.Screen
