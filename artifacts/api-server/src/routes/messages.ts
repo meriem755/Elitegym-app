@@ -1,6 +1,7 @@
 import { Router } from "express";
 import pool from "../lib/db.js";
 import { authMiddleware } from "../lib/auth.js";
+import { pushNotification } from "../lib/ws.js";
 
 const router = Router();
 
@@ -28,6 +29,8 @@ router.post("/", authMiddleware, async (req, res) => {
       INSERT INTO notification (id_util, type_notif, canal, contenu, statut)
       VALUES (?, ?, 'app', ?, 'envoye')
     `, [id_util, type_notif || 'message', contenu]);
+    // Push real-time notification via WebSocket
+    pushNotification(Number(id_util), { contenu, type_notif: type_notif || 'message' });
     res.json({ success: true });
   } catch (err: any) {
     req.log.error(err);

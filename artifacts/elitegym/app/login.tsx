@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Alert, Platform } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Alert, Platform, TouchableOpacity } from "react-native";
+import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
@@ -57,10 +58,19 @@ export default function LoginScreen() {
       style={{ flex: 1, backgroundColor: colors.background }}
       contentContainerStyle={[
         styles.container,
-        { paddingTop: Platform.OS === "web" ? 80 : insets.top + 40, paddingBottom: 40 },
+        { paddingTop: Platform.OS === "web" ? 60 : insets.top + 20, paddingBottom: 40 },
       ]}
       keyboardShouldPersistTaps="handled"
     >
+      <TouchableOpacity
+        style={styles.backBtn}
+        onPress={() => router.replace("/")}
+        activeOpacity={0.7}
+      >
+        <Feather name="arrow-left" size={18} color={colors.mutedForeground} />
+        <Text style={[styles.backText, { color: colors.mutedForeground }]}>Retour à l'accueil</Text>
+      </TouchableOpacity>
+
       <View style={styles.logoSection}>
         <View style={[styles.logo, { backgroundColor: colors.primary }]}>
           <Text style={styles.logoText}>EG</Text>
@@ -102,7 +112,9 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: 20, gap: 32 },
+  container: { paddingHorizontal: 20, gap: 24 },
+  backBtn: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start" },
+  backText: { fontSize: 14 },
   logoSection: { alignItems: "center", gap: 8 },
   logo: {
     width: 72,
