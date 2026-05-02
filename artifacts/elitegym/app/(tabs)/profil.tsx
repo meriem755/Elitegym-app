@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import {
   View, Text, StyleSheet, ScrollView, Platform,
-  Alert, TouchableOpacity, ActivityIndicator,
+  Alert, TouchableOpacity, ActivityIndicator, Modal, TextInput,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
@@ -27,7 +27,22 @@ const sp = StyleSheet.create({
   label: { fontSize: 11, fontWeight: "600", opacity: 0.8 },
 });
 
-// Mini bar chart (no deps)
+function StarRow({ note, onSelect, size = 28 }: { note: number; onSelect?: (n: number) => void; size?: number }) {
+  return (
+    <View style={{ flexDirection: "row", gap: 6 }}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <TouchableOpacity key={n} onPress={() => onSelect?.(n)} disabled={!onSelect} activeOpacity={0.7}>
+          <Feather
+            name={n <= note ? "star" : "star"}
+            size={size}
+            color={n <= note ? "#f59e0b" : "#d1d5db"}
+          />
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
 function WeeklyChart({ data, color }: { data: { semaine: string; count: number }[]; color: string }) {
   const max = Math.max(...data.map((d) => d.count), 1);
   return (
@@ -35,15 +50,7 @@ function WeeklyChart({ data, color }: { data: { semaine: string; count: number }
       {data.map((d, i) => (
         <View key={i} style={chart.col}>
           <View style={chart.barWrap}>
-            <View
-              style={[
-                chart.bar,
-                {
-                  height: `${Math.max(4, (d.count / max) * 100)}%`,
-                  backgroundColor: d.count > 0 ? color : color + "25",
-                },
-              ]}
-            />
+            <View style={[chart.bar, { height: `${Math.max(4, (d.count / max) * 100)}%`, backgroundColor: d.count > 0 ? color : color + "25" }]} />
           </View>
           <Text style={chart.label}>{d.semaine.slice(-3)}</Text>
           {d.count > 0 && <Text style={[chart.count, { color }]}>{d.count}</Text>}
@@ -61,7 +68,6 @@ const chart = StyleSheet.create({
   count: { fontSize: 9, fontWeight: "900", position: "absolute", top: -14 },
 });
 
-// Regrouper l'historique par mois
 function groupByMonth(historique: any[]) {
   const groups: Record<string, any[]> = {};
   historique.forEach((r) => {
@@ -72,10 +78,7 @@ function groupByMonth(historique: any[]) {
   return Object.entries(groups).sort(([a], [b]) => b.localeCompare(a));
 }
 
-const MOIS_FR = [
-  "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
-  "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
-];
+const MOIS_FR = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
 function formatMois(key: string) {
   const [yr, mo] = key.split("-");
   return `${MOIS_FR[parseInt(mo) - 1]} ${yr}`;
@@ -88,22 +91,27 @@ export default function ProfilScreen() {
   const [section, setSection] = useState<Section>("profil");
   const [loading, setLoading] = useState(false);
 
-  // Paramètres
   const [ancienMdp, setAncienMdp] = useState("");
   const [nouveauMdp, setNouveauMdp] = useState("");
   const [nouveauTel, setNouveauTel] = useState("");
   const [nouvelEmail, setNouvelEmail] = useState("");
 
-  // Progrès
   const [suivis, setSuivis] = useState<any[]>([]);
   const [programmes, setProgrammes] = useState<any[]>([]);
   const [loadingProgress, setLoadingProgress] = useState(false);
 
-  // Présence
   const [presenceStats, setPresenceStats] = useState<any>(null);
   const [presenceHistorique, setPresenceHistorique] = useState<any[]>([]);
   const [presenceSemaines, setPresenceSemaines] = useState<any[]>([]);
   const [loadingPresence, setLoadingPresence] = useState(false);
+
+  // Avis map: id_cours → { note, commentaire }
+  const [avisMap, setAvisMap] = useState<Record<number, { note: number; commentaire: string }>>({});
+  // Modal notation
+  const [avisTarget, setAvisTarget] = useState<any>(null); // la réservation sélectionnée
+  const [avisDraftNote, setAvisDraftNote] = useState(0);
+  const [avisDraftComment, setAvisDraftComment] = useState("");
+  const [avisLoading, setAvisLoading] = useState(false);
 
   useEffect(() => {
     if (section === "progress" && user?.id_membre) loadProgress();
@@ -128,12 +136,53 @@ export default function ProfilScreen() {
     if (!user?.id_membre) return;
     setLoadingPresence(true);
     try {
-      const data = await api.get(`/reservations/presence/${user.id_membre}`);
-      setPresenceStats(data.stats);
-      setPresenceHistorique(data.historique);
-      setPresenceSemaines(data.activite_semaines);
+      const [presData, avisData] = await Promise.all([
+        api.get(`/reservations/presence/${user.id_membre}`),
+        api.get(`/avis/membre/${user.id_membre}`).catch(() => []),
+      ]);
+      setPresenceStats(presData.stats);
+      setPresenceHistorique(presData.historique);
+      setPresenceSemaines(presData.activite_semaines);
+
+      const map: Record<number, { note: number; commentaire: string }> = {};
+      (avisData as any[]).forEach((a: any) => {
+        map[a.id_cours] = { note: a.note, commentaire: a.commentaire || "" };
+      });
+      setAvisMap(map);
     } catch {}
     setLoadingPresence(false);
+  };
+
+  const openAvisModal = (reservation: any) => {
+    const existing = avisMap[reservation.id_cours];
+    setAvisTarget(reservation);
+    setAvisDraftNote(existing?.note ?? 0);
+    setAvisDraftComment(existing?.commentaire ?? "");
+  };
+
+  const submitAvis = async () => {
+    if (!avisTarget || avisDraftNote === 0) {
+      Alert.alert("Note requise", "Sélectionnez une note entre 1 et 5 étoiles.");
+      return;
+    }
+    setAvisLoading(true);
+    try {
+      await api.post("/avis", {
+        id_membre: user?.id_membre,
+        id_cours: avisTarget.id_cours,
+        note: avisDraftNote,
+        commentaire: avisDraftComment || undefined,
+      });
+      setAvisMap((prev) => ({
+        ...prev,
+        [avisTarget.id_cours]: { note: avisDraftNote, commentaire: avisDraftComment },
+      }));
+      setAvisTarget(null);
+      Alert.alert("Merci !", "Votre avis a bien été enregistré.");
+    } catch (e: any) {
+      Alert.alert("Erreur", e.message);
+    }
+    setAvisLoading(false);
   };
 
   const handleChangeMdp = async () => {
@@ -173,7 +222,7 @@ export default function ProfilScreen() {
   };
 
   const SECTIONS: { key: Section; label: string; icon: string }[] = [
-    { key: "profil",   label: "Profil",    icon: "user" },
+    { key: "profil",   label: "Profil",     icon: "user" },
     { key: "securite", label: "Paramètres", icon: "settings" },
     ...(user?.role === "membre" ? [
       { key: "presence" as Section, label: "Présence", icon: "bar-chart-2" },
@@ -186,10 +235,7 @@ export default function ProfilScreen() {
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.background }}
-      contentContainerStyle={[
-        styles.container,
-        { paddingTop: Platform.OS === "web" ? 90 : insets.top + 16, paddingBottom: 100 },
-      ]}
+      contentContainerStyle={[styles.container, { paddingTop: Platform.OS === "web" ? 90 : insets.top + 16, paddingBottom: 100 }]}
     >
       {/* Header */}
       <View style={[styles.header, { backgroundColor: colors.primary }]}>
@@ -203,27 +249,17 @@ export default function ProfilScreen() {
         )}
       </View>
 
-      {/* Tabs */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
+      {/* Tabs scrollables */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}
         style={[styles.tabsScroll, { backgroundColor: colors.card, borderColor: colors.border }]}
         contentContainerStyle={styles.tabsContent}
       >
         {SECTIONS.map((s) => (
-          <TouchableOpacity
-            key={s.key}
-            onPress={() => setSection(s.key)}
+          <TouchableOpacity key={s.key} onPress={() => setSection(s.key)}
             style={[styles.tabBtn, section === s.key && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
           >
-            <Feather
-              name={s.icon as any}
-              size={13}
-              color={section === s.key ? colors.primary : colors.mutedForeground}
-            />
-            <Text style={[styles.tabLabel, { color: section === s.key ? colors.primary : colors.mutedForeground }]}>
-              {s.label}
-            </Text>
+            <Feather name={s.icon as any} size={13} color={section === s.key ? colors.primary : colors.mutedForeground} />
+            <Text style={[styles.tabLabel, { color: section === s.key ? colors.primary : colors.mutedForeground }]}>{s.label}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -276,8 +312,7 @@ export default function ProfilScreen() {
             <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Informations de connexion</Text>
             <Text style={[styles.current, { color: colors.mutedForeground }]}>
               Connectez-vous avec votre{" "}
-              <Text style={{ fontWeight: "700", color: colors.foreground }}>email</Text>
-              {" "}OU votre{" "}
+              <Text style={{ fontWeight: "700", color: colors.foreground }}>email</Text> OU votre{" "}
               <Text style={{ fontWeight: "700", color: colors.foreground }}>numéro de téléphone</Text>.{"\n\n"}
               Mot de passe par défaut (nouveaux comptes) :{"\n"}
               <Text style={{ fontWeight: "900", color: colors.primary }}>elitegym2026</Text>
@@ -296,7 +331,7 @@ export default function ProfilScreen() {
             </View>
           ) : presenceStats ? (
             <>
-              {/* Stats globales */}
+              {/* Stats */}
               <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Résumé global</Text>
                 <View style={{ flexDirection: "row", gap: 8 }}>
@@ -311,7 +346,7 @@ export default function ProfilScreen() {
                 </View>
               </View>
 
-              {/* Graphique activité hebdomadaire */}
+              {/* Graphique */}
               {presenceSemaines.length > 0 && (
                 <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -321,39 +356,27 @@ export default function ProfilScreen() {
                     </Text>
                   </View>
                   <WeeklyChart data={presenceSemaines} color={colors.primary} />
-                  <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
-                    <View style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: colors.primary }} />
-                    <Text style={[styles.current, { color: colors.mutedForeground }]}>Séances par semaine</Text>
-                  </View>
                 </View>
               )}
 
-              {/* Médailles / achievements */}
+              {/* Réalisations */}
               {presenceStats.total_seances > 0 && (
                 <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Réalisations</Text>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
                     {[
-                      { min: 1,   emoji: "🥉", label: "Première séance",    color: "#cd7f32" },
-                      { min: 5,   emoji: "🥈", label: "5 séances",          color: "#9ca3af" },
-                      { min: 10,  emoji: "🥇", label: "10 séances",         color: "#f59e0b" },
-                      { min: 25,  emoji: "🏆", label: "25 séances",         color: "#8b5cf6" },
-                      { min: 50,  emoji: "🦁", label: "50 séances",         color: "#ef4444" },
-                      { min: 100, emoji: "⚡", label: "Centurion 100+",     color: "#e63946" },
+                      { min: 1,   emoji: "🥉", label: "Première séance", color: "#cd7f32" },
+                      { min: 5,   emoji: "🥈", label: "5 séances",       color: "#9ca3af" },
+                      { min: 10,  emoji: "🥇", label: "10 séances",      color: "#f59e0b" },
+                      { min: 25,  emoji: "🏆", label: "25 séances",      color: "#8b5cf6" },
+                      { min: 50,  emoji: "🦁", label: "50 séances",      color: "#ef4444" },
+                      { min: 100, emoji: "⚡", label: "Centurion 100+",  color: "#e63946" },
                     ].map((a) => {
                       const unlocked = presenceStats.total_seances >= a.min;
                       return (
-                        <View
-                          key={a.label}
-                          style={[
-                            styles.achievement,
-                            { backgroundColor: unlocked ? a.color + "15" : colors.background, borderColor: unlocked ? a.color + "50" : colors.border },
-                          ]}
-                        >
+                        <View key={a.label} style={[styles.achievement, { backgroundColor: unlocked ? a.color + "15" : colors.background, borderColor: unlocked ? a.color + "50" : colors.border }]}>
                           <Text style={{ fontSize: 22, opacity: unlocked ? 1 : 0.25 }}>{a.emoji}</Text>
-                          <Text style={[styles.achievLabel, { color: unlocked ? a.color : colors.mutedForeground }]}>
-                            {a.label}
-                          </Text>
+                          <Text style={[styles.achievLabel, { color: unlocked ? a.color : colors.mutedForeground }]}>{a.label}</Text>
                         </View>
                       );
                     })}
@@ -361,13 +384,13 @@ export default function ProfilScreen() {
                 </View>
               )}
 
-              {/* Historique par mois */}
+              {/* Historique */}
               {groupes.length === 0 ? (
                 <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <View style={styles.emptyBlock}>
                     <Feather name="calendar" size={32} color={colors.mutedForeground} />
                     <Text style={[styles.current, { color: colors.mutedForeground, textAlign: "center" }]}>
-                      Aucune séance passée enregistrée.{"\n"}Réservez un cours pour commencer votre suivi !
+                      Aucune séance passée.{"\n"}Réservez un cours pour commencer !
                     </Text>
                   </View>
                 </View>
@@ -376,9 +399,7 @@ export default function ProfilScreen() {
                   <View key={moisKey}>
                     <View style={styles.monthHeader}>
                       <Feather name="calendar" size={13} color={colors.primary} />
-                      <Text style={[styles.monthTitle, { color: colors.foreground }]}>
-                        {formatMois(moisKey)}
-                      </Text>
+                      <Text style={[styles.monthTitle, { color: colors.foreground }]}>{formatMois(moisKey)}</Text>
                       <View style={[styles.monthBadge, { backgroundColor: colors.primary + "15" }]}>
                         <Text style={[styles.monthBadgeText, { color: colors.primary }]}>
                           {items.length} séance{items.length > 1 ? "s" : ""}
@@ -389,46 +410,74 @@ export default function ProfilScreen() {
                     {items.map((r: any) => {
                       const dateObj = new Date(r.date_cours + "T12:00:00");
                       const dayName = ["Dim","Lun","Mar","Mer","Jeu","Ven","Sam"][dateObj.getDay()];
-                      const heures = Math.floor((r.duree_minutes || 0) / 60);
-                      const mins = (r.duree_minutes || 0) % 60;
-                      const dureeLabel = heures > 0
-                        ? `${heures}h${mins > 0 ? String(mins).padStart(2, "0") : ""}`
+                      const mins = r.duree_minutes || 0;
+                      const dureeLabel = mins >= 60
+                        ? `${Math.floor(mins / 60)}h${mins % 60 > 0 ? String(mins % 60).padStart(2,"0") : ""}`
                         : `${mins}min`;
+                      const existingAvis = avisMap[r.id_cours];
+
                       return (
                         <View key={r.id_reservation} style={[styles.presenceCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                          {/* Date badge */}
-                          <View style={[styles.dateBadge, { backgroundColor: colors.primary + "15" }]}>
-                            <Text style={[styles.dateBadgeDay, { color: colors.primary }]}>{dayName}</Text>
-                            <Text style={[styles.dateBadgeNum, { color: colors.primary }]}>
-                              {dateObj.getDate()}
-                            </Text>
-                          </View>
+                          <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 12 }}>
+                            {/* Date badge */}
+                            <View style={[styles.dateBadge, { backgroundColor: colors.primary + "15" }]}>
+                              <Text style={[styles.dateBadgeDay, { color: colors.primary }]}>{dayName}</Text>
+                              <Text style={[styles.dateBadgeNum, { color: colors.primary }]}>{dateObj.getDate()}</Text>
+                            </View>
 
-                          {/* Info */}
-                          <View style={{ flex: 1, gap: 3 }}>
-                            <Text style={[styles.coursNom, { color: colors.foreground }]}>{r.type_cours}</Text>
-                            <View style={styles.metaRow}>
-                              <Feather name="clock" size={11} color={colors.mutedForeground} />
-                              <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
-                                {r.heure_debut?.slice(0, 5)} · {dureeLabel}
-                              </Text>
-                            </View>
-                            <View style={styles.metaRow}>
-                              <Feather name="map-pin" size={11} color={colors.mutedForeground} />
-                              <Text style={[styles.metaText, { color: colors.mutedForeground }]}>{r.salle}</Text>
-                            </View>
-                            {r.coach_nom && (
+                            {/* Info cours */}
+                            <View style={{ flex: 1, gap: 3 }}>
+                              <Text style={[styles.coursNom, { color: colors.foreground }]}>{r.type_cours}</Text>
                               <View style={styles.metaRow}>
-                                <Feather name="user" size={11} color={colors.mutedForeground} />
-                                <Text style={[styles.metaText, { color: colors.mutedForeground }]}>{r.coach_nom}</Text>
+                                <Feather name="clock" size={11} color={colors.mutedForeground} />
+                                <Text style={[styles.metaText, { color: colors.mutedForeground }]}>{r.heure_debut?.slice(0,5)} · {dureeLabel}</Text>
                               </View>
-                            )}
+                              <View style={styles.metaRow}>
+                                <Feather name="map-pin" size={11} color={colors.mutedForeground} />
+                                <Text style={[styles.metaText, { color: colors.mutedForeground }]}>{r.salle}</Text>
+                              </View>
+                              {r.coach_nom && (
+                                <View style={styles.metaRow}>
+                                  <Feather name="user" size={11} color={colors.mutedForeground} />
+                                  <Text style={[styles.metaText, { color: colors.mutedForeground }]}>{r.coach_nom}</Text>
+                                </View>
+                              )}
+                            </View>
+
+                            {/* Check */}
+                            <View style={[styles.checkBadge, { backgroundColor: "#10b98115" }]}>
+                              <Feather name="check-circle" size={18} color="#10b981" />
+                            </View>
                           </View>
 
-                          {/* Check présence */}
-                          <View style={[styles.checkBadge, { backgroundColor: "#10b98115" }]}>
-                            <Feather name="check-circle" size={18} color="#10b981" />
-                          </View>
+                          {/* Section avis */}
+                          {existingAvis ? (
+                            <TouchableOpacity
+                              onPress={() => openAvisModal(r)}
+                              style={[styles.avisRow, { backgroundColor: "#f59e0b10", borderColor: "#f59e0b30" }]}
+                            >
+                              <View style={{ flexDirection: "row", gap: 2 }}>
+                                {[1,2,3,4,5].map((n) => (
+                                  <Feather key={n} name="star" size={14} color={n <= existingAvis.note ? "#f59e0b" : "#d1d5db"} />
+                                ))}
+                              </View>
+                              {existingAvis.commentaire ? (
+                                <Text style={styles.avisCommentText} numberOfLines={1}>"{existingAvis.commentaire}"</Text>
+                              ) : (
+                                <Text style={{ fontSize: 11, color: "#92400e" }}>Modifier mon avis</Text>
+                              )}
+                              <Feather name="edit-2" size={11} color="#92400e" />
+                            </TouchableOpacity>
+                          ) : (
+                            <TouchableOpacity
+                              onPress={() => openAvisModal(r)}
+                              style={[styles.avisRow, { backgroundColor: colors.background, borderColor: colors.border }]}
+                            >
+                              <Feather name="star" size={13} color={colors.mutedForeground} />
+                              <Text style={[styles.metaText, { color: colors.mutedForeground }]}>Donner un avis sur ce cours</Text>
+                              <Feather name="chevron-right" size={13} color={colors.mutedForeground} />
+                            </TouchableOpacity>
+                          )}
                         </View>
                       );
                     })}
@@ -439,7 +488,7 @@ export default function ProfilScreen() {
           ) : (
             <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Text style={[styles.current, { color: colors.mutedForeground, textAlign: "center" }]}>
-                Impossible de charger l'historique. Vérifiez votre connexion.
+                Impossible de charger l'historique.
               </Text>
               <EliteButton title="Réessayer" onPress={loadPresence} variant="secondary" small />
             </View>
@@ -451,9 +500,7 @@ export default function ProfilScreen() {
       {section === "progress" && user?.role === "membre" && (
         <>
           {loadingProgress ? (
-            <View style={styles.loadingWrap}>
-              <ActivityIndicator size="large" color={colors.primary} />
-            </View>
+            <View style={styles.loadingWrap}><ActivityIndicator size="large" color={colors.primary} /></View>
           ) : (
             <>
               <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Suivi des performances</Text>
@@ -466,24 +513,20 @@ export default function ProfilScreen() {
                     </Text>
                   </View>
                 </View>
-              ) : (
-                suivis.map((s: any) => (
-                  <View key={s.id_suivi} style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                    <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                      <Text style={[styles.sectionTitle, { color: colors.foreground }]}>{s.date_mesure?.slice(0, 10)}</Text>
-                      <Text style={{ fontSize: 12, color: colors.primary, fontWeight: "600" }}>{s.coach_nom}</Text>
-                    </View>
-                    <View style={{ flexDirection: "row", gap: 8 }}>
-                      {s.poids_kg && <StatPill label="Poids" value={`${s.poids_kg} kg`} color={colors.primary} />}
-                      {s.imc && <StatPill label="IMC" value={s.imc} color="#10b981" />}
-                      {s.tour_taille && <StatPill label="Tour taille" value={`${s.tour_taille} cm`} color="#f59e0b" />}
-                    </View>
-                    {s.observations && (
-                      <Text style={[styles.current, { color: colors.foreground }]}>📝 {s.observations}</Text>
-                    )}
+              ) : suivis.map((s: any) => (
+                <View key={s.id_suivi} style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                    <Text style={[styles.sectionTitle, { color: colors.foreground }]}>{s.date_mesure?.slice(0,10)}</Text>
+                    <Text style={{ fontSize: 12, color: colors.primary, fontWeight: "600" }}>{s.coach_nom}</Text>
                   </View>
-                ))
-              )}
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    {s.poids_kg && <StatPill label="Poids" value={`${s.poids_kg} kg`} color={colors.primary} />}
+                    {s.imc && <StatPill label="IMC" value={s.imc} color="#10b981" />}
+                    {s.tour_taille && <StatPill label="Tour taille" value={`${s.tour_taille} cm`} color="#f59e0b" />}
+                  </View>
+                  {s.observations && <Text style={[styles.current, { color: colors.foreground }]}>📝 {s.observations}</Text>}
+                </View>
+              ))}
 
               <Text style={[styles.sectionTitle, { color: colors.foreground, marginTop: 6 }]}>Programmes d'entraînement</Text>
               {programmes.length === 0 ? (
@@ -495,24 +538,74 @@ export default function ProfilScreen() {
                     </Text>
                   </View>
                 </View>
-              ) : (
-                programmes.map((p: any) => (
-                  <View key={p.id_programme} style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                    <Text style={[styles.sectionTitle, { color: colors.foreground }]}>{p.titre}</Text>
-                    <Text style={{ fontSize: 12, color: colors.primary, fontWeight: "600" }}>Coach : {p.coach_nom}</Text>
-                    {p.description && (
-                      <Text style={[styles.current, { color: colors.foreground }]}>{p.description}</Text>
-                    )}
-                    <Text style={[styles.current, { color: colors.mutedForeground }]}>
-                      Créé le {p.date_creation?.slice(0, 10)}
-                    </Text>
-                  </View>
-                ))
-              )}
+              ) : programmes.map((p: any) => (
+                <View key={p.id_programme} style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <Text style={[styles.sectionTitle, { color: colors.foreground }]}>{p.titre}</Text>
+                  <Text style={{ fontSize: 12, color: colors.primary, fontWeight: "600" }}>Coach : {p.coach_nom}</Text>
+                  {p.description && <Text style={[styles.current, { color: colors.foreground }]}>{p.description}</Text>}
+                  <Text style={[styles.current, { color: colors.mutedForeground }]}>Créé le {p.date_creation?.slice(0,10)}</Text>
+                </View>
+              ))}
             </>
           )}
         </>
       )}
+
+      {/* ── MODAL NOTATION ── */}
+      <Modal visible={!!avisTarget} animationType="slide" transparent onRequestClose={() => setAvisTarget(null)}>
+        <View style={modal.overlay}>
+          <View style={[modal.sheet, { backgroundColor: colors.card }]}>
+            {/* Handle */}
+            <View style={[modal.handle, { backgroundColor: colors.border }]} />
+
+            <Text style={[modal.title, { color: colors.foreground }]}>
+              {avisMap[avisTarget?.id_cours] ? "Modifier mon avis" : "Noter ce cours"}
+            </Text>
+            <Text style={[modal.subtitle, { color: colors.mutedForeground }]}>
+              {avisTarget?.type_cours} · {avisTarget?.date_cours?.slice(0,10)}
+            </Text>
+
+            {/* Étoiles */}
+            <View style={modal.starsRow}>
+              {[1,2,3,4,5].map((n) => (
+                <TouchableOpacity key={n} onPress={() => setAvisDraftNote(n)} activeOpacity={0.7} style={modal.starBtn}>
+                  <Feather name="star" size={40} color={n <= avisDraftNote ? "#f59e0b" : "#e5e7eb"} />
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={[modal.noteLabel, { color: colors.mutedForeground }]}>
+              {["","Décevant","Peut mieux faire","Bien","Très bien","Excellent !"][avisDraftNote] || "Sélectionnez une note"}
+            </Text>
+
+            {/* Commentaire */}
+            <Text style={[modal.fieldLabel, { color: colors.foreground }]}>Commentaire (optionnel)</Text>
+            <TextInput
+              value={avisDraftComment}
+              onChangeText={setAvisDraftComment}
+              placeholder="Partagez votre expérience..."
+              placeholderTextColor={colors.mutedForeground}
+              multiline
+              numberOfLines={3}
+              style={[modal.textInput, { color: colors.foreground, backgroundColor: colors.background, borderColor: colors.border }]}
+            />
+
+            {/* Boutons */}
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <EliteButton title="Annuler" onPress={() => setAvisTarget(null)} variant="outline" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <EliteButton
+                  title={avisLoading ? "Envoi..." : "Envoyer"}
+                  onPress={submitAvis}
+                  loading={avisLoading}
+                  disabled={avisDraftNote === 0}
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -537,12 +630,11 @@ const styles = StyleSheet.create({
   current: { fontSize: 13, lineHeight: 20 },
   loadingWrap: { alignItems: "center", gap: 10, paddingVertical: 40 },
   emptyBlock: { alignItems: "center", gap: 10, paddingVertical: 10 },
-  // Présence
   monthHeader: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6, paddingHorizontal: 2 },
   monthTitle: { flex: 1, fontSize: 14, fontWeight: "700" },
   monthBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   monthBadgeText: { fontSize: 11, fontWeight: "700" },
-  presenceCard: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 12, padding: 12, borderWidth: 1, marginBottom: 8 },
+  presenceCard: { borderRadius: 12, padding: 12, borderWidth: 1, marginBottom: 8, gap: 10 },
   dateBadge: { width: 44, height: 52, borderRadius: 10, alignItems: "center", justifyContent: "center", gap: 1 },
   dateBadgeDay: { fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
   dateBadgeNum: { fontSize: 20, fontWeight: "900" },
@@ -552,4 +644,19 @@ const styles = StyleSheet.create({
   checkBadge: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   achievement: { width: "30%", borderRadius: 10, borderWidth: 1.5, padding: 10, alignItems: "center", gap: 4 },
   achievLabel: { fontSize: 10, fontWeight: "700", textAlign: "center" },
+  avisRow: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 8, padding: 8, borderWidth: 1 },
+  avisCommentText: { flex: 1, fontSize: 11, color: "#92400e", fontStyle: "italic" },
+});
+
+const modal = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
+  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, gap: 14, paddingBottom: 36 },
+  handle: { width: 40, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 4 },
+  title: { fontSize: 20, fontWeight: "800", textAlign: "center" },
+  subtitle: { fontSize: 13, textAlign: "center", marginTop: -6 },
+  starsRow: { flexDirection: "row", justifyContent: "center", gap: 8, paddingVertical: 8 },
+  starBtn: { padding: 4 },
+  noteLabel: { textAlign: "center", fontSize: 13, fontWeight: "600", marginTop: -8 },
+  fieldLabel: { fontSize: 13, fontWeight: "600" },
+  textInput: { borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 13, minHeight: 80, textAlignVertical: "top" },
 });
