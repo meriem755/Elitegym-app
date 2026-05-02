@@ -2,6 +2,7 @@ import { createServer } from "http";
 import app from "./app.js";
 import { logger } from "./lib/logger.js";
 import { setupWss } from "./lib/ws.js";
+import 'dotenv/config';
 
 const rawPort = process.env["PORT"];
 

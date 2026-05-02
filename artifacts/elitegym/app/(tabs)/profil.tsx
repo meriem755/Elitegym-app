@@ -5,11 +5,13 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { useRouter } from 'expo-router'; 
 import { useAuth } from "@/context/AuthContext";
 import { api } from "@/lib/api";
 import EliteButton from "@/components/EliteButton";
 import EliteInput from "@/components/EliteInput";
 import { Feather } from "@expo/vector-icons";
+
 
 type Section = "profil" | "securite" | "progress" | "presence";
 
@@ -88,6 +90,7 @@ export default function ProfilScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user, logout, updateUser } = useAuth();
+  const router = useRouter();
   const [section, setSection] = useState<Section>("profil");
   const [loading, setLoading] = useState(false);
 
@@ -232,6 +235,19 @@ export default function ProfilScreen() {
 
   const groupes = groupByMonth(presenceHistorique);
 
+    const handleLogout = async () => {
+    try {
+      await logout();  // Attend que le storage soit vidé
+      router.replace('/login');  // Puis redirige
+    } catch (error) {
+      console.error('Erreur déconnexion:', error);
+      // Fallback pour le web
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      }
+    }
+  };
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: colors.background }}
@@ -283,7 +299,7 @@ export default function ProfilScreen() {
               </View>
             </View>
           ))}
-          <EliteButton title="Se déconnecter" onPress={logout} variant="danger" />
+          <EliteButton title="Se déconnecter" onPress={handleLogout} variant="danger" />
         </>
       )}
 

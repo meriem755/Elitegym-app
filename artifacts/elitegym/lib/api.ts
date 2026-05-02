@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const BASE = `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
+// ✅ Après
+const BASE = `http://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
 
 async function getToken(): Promise<string | null> {
   const val = await AsyncStorage.getItem("elitegym_user");
