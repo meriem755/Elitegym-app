@@ -311,8 +311,9 @@ elitegym-app/
 |-----------|-------------|
 | Frontend | React Native + Expo Router 6 |
 | Backend | Node.js 20 LTS (recommandé) + Express 5 + TypeScript |
-> ⚠️ Node.js v22+ peut causer des problèmes avec certains modules natifs (`bcrypt`, `lightningcss`). Restez sur la v20 LTS pour le développement local.
 | Base de données | MySQL 8/9 via mysql2 |
 | Authentification | JWT + bcrypt |
 | Temps réel | WebSocket (ws) |
 | Monorepo | pnpm workspaces |
+
+> ⚠️ Node.js v22+ peut causer des problèmes avec certains modules natifs (`bcrypt`, `lightningcss`). Restez sur la v20 LTS pour le développement local.
