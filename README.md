@@ -106,14 +106,29 @@ Créez `artifacts/elitegym/.env` :
 EXPO_PUBLIC_DOMAIN=192.168.1.X:8080
 ```
 
+> ⚠️ **Important pour le développement local** :  
+> - `EXPO_PUBLIC_DOMAIN` ne doit **pas** contenir `http://` ou `https://` (ex: `192.168.1.42:8080`).  
+> - Dans `artifacts/elitegym/lib/api.ts`, assurez-vous que `BASE` utilise `http://` en local et `https://` en production.
+> ```ts
+> const BASE = `http://${process.env.EXPO_PUBLIC_DOMAIN}/api`; // Local
+> // const BASE = `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`; // Production
+> ```
+
 > ⚠️ **Windows** : Utilisez l'IP locale de votre PC (ex: `192.168.1.42:8080`), pas `localhost`.  
 > Votre téléphone et votre PC doivent être sur le **même réseau WiFi**.
 
-### 4. Démarrer le backend
+### 💡 Astuces & Dépannage Windows
+| Problème | Solution |
+|----------|----------|
+| `'export' n'est pas reconnu` ou `'sh' n'est pas reconnu` | Les scripts ont été migrés vers `cross-env`. Si l'erreur persiste, lancez `pnpm add -D cross-env` dans `api-server` et `elitegym`. |
+| `lightningcss.win32-x64-msvc.node` introuvable | Exécutez `pnpm store prune && pnpm install` pour forcer le téléchargement des binaires natifs Windows. |
+| Fichiers `.node` bloqués lors de `Remove-Item` | Fermez VS Code, tuez les processus Node (`taskkill /F /IM node.exe`), puis supprimez `node_modules`. |
+| PowerShell vs CMD | Utilisez PowerShell ou Git Bash. Les commandes `pnpm` sont identiques. |
 
+### 4. Démarrer le backend
+> ✅ Les scripts utilisent `cross-env` pour être compatibles Windows, Mac et Linux.
 ```bash
 pnpm --filter @workspace/api-server run dev
-```
 
 Le serveur démarre sur `http://localhost:8080/api`  
 Test : `http://localhost:8080/api/healthz` doit retourner `{"status":"ok"}`
@@ -127,6 +142,15 @@ pnpm --filter @workspace/elitegym run dev
 Scanner le QR code avec **Expo Go** sur votre téléphone.
 
 ---
+
+
+
+
+### 🔄 Workflow de Développement
+1. **Backend** : `pnpm --filter @workspace/api-server run dev` (écoute sur `http://localhost:8080`)
+2. **Frontend** : `pnpm --filter @workspace/elitegym run dev` (scan QR avec Expo Go)
+3. **Auth** : La déconnexion vide `AsyncStorage` et redirige vers `/login`. Si vous restez bloqué sur un dashboard, ouvrez `http://localhost:8081?clear=true` ou videz le cache Expo.
+4. **Réseau** : PC et téléphone doivent être sur le **même WiFi** pour le dev local. Pour tester à distance, déployez le backend (Railway/Render) et mettez à jour `EXPO_PUBLIC_DOMAIN`.
 
 ## 🔐 Comptes de test
 
@@ -286,7 +310,8 @@ elitegym-app/
 | Composant | Technologie |
 |-----------|-------------|
 | Frontend | React Native + Expo Router 6 |
-| Backend | Node.js 20 + Express 5 + TypeScript |
+| Backend | Node.js 20 LTS (recommandé) + Express 5 + TypeScript |
+> ⚠️ Node.js v22+ peut causer des problèmes avec certains modules natifs (`bcrypt`, `lightningcss`). Restez sur la v20 LTS pour le développement local.
 | Base de données | MySQL 8/9 via mysql2 |
 | Authentification | JWT + bcrypt |
 | Temps réel | WebSocket (ws) |
