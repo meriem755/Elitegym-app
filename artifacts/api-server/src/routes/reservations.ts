@@ -23,12 +23,97 @@ router.get("/membre/:id_membre", authMiddleware, async (req, res) => {
   }
 });
 
+// Historique de présence (cours passés confirmés) + stats pour un membre
+router.get("/presence/:id_membre", authMiddleware, async (req, res) => {
+  try {
+    const [rows]: any = await pool.query(`
+      SELECT
+        r.id_reservation,
+        r.statut,
+        r.date_reservation,
+        c.type_cours,
+        c.date_cours,
+        c.heure_debut,
+        c.duree_minutes,
+        c.salle,
+        CONCAT(u.prenom, ' ', u.nom) AS coach_nom
+      FROM reservation r
+      JOIN cours c ON r.id_cours = c.id_cours
+      JOIN coach co ON c.id_coach = co.id_coach
+      JOIN utilisateur u ON co.id_util = u.id_util
+      WHERE r.id_membre = ?
+        AND r.statut = 'confirmee'
+        AND c.date_cours < CURDATE()
+      ORDER BY c.date_cours DESC, c.heure_debut DESC
+    `, [req.params.id_membre]);
+
+    // Stats globales
+    const total_seances = rows.length;
+    const total_minutes = rows.reduce((acc: number, r: any) => acc + (r.duree_minutes || 0), 0);
+    const total_heures = Math.round(total_minutes / 60 * 10) / 10;
+
+    // Cours le plus pratiqué
+    const compteur: Record<string, number> = {};
+    rows.forEach((r: any) => {
+      compteur[r.type_cours] = (compteur[r.type_cours] || 0) + 1;
+    });
+    const cours_favori = Object.entries(compteur).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+    // Séances ce mois
+    const now = new Date();
+    const seances_mois = rows.filter((r: any) => {
+      const d = new Date(r.date_cours);
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }).length;
+
+    // Activité par semaine (8 dernières semaines)
+    const semaines: Record<string, number> = {};
+    for (let i = 0; i < 8; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - i * 7);
+      const yr = d.getFullYear();
+      const wk = getWeekNumber(d);
+      semaines[`${yr}-S${String(wk).padStart(2, "0")}`] = 0;
+    }
+    rows.forEach((r: any) => {
+      const d = new Date(r.date_cours);
+      const yr = d.getFullYear();
+      const wk = getWeekNumber(d);
+      const key = `${yr}-S${String(wk).padStart(2, "0")}`;
+      if (key in semaines) semaines[key]++;
+    });
+    const activite_semaines = Object.entries(semaines)
+      .map(([semaine, count]) => ({ semaine, count }))
+      .reverse();
+
+    res.json({
+      stats: { total_seances, total_heures, cours_favori, seances_mois },
+      activite_semaines,
+      historique: rows,
+    });
+  } catch (err: any) {
+    req.log.error(err);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+function getWeekNumber(d: Date): number {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  return Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
 router.post("/", authMiddleware, async (req, res) => {
   const { id_membre, id_cours } = req.body;
   try {
-    const [cours]: any = await pool.query("SELECT * FROM cours WHERE id_cours = ? AND statut = 'publie'", [id_cours]);
+    const [cours]: any = await pool.query(
+      "SELECT * FROM cours WHERE id_cours = ? AND statut = 'publie'",
+      [id_cours]
+    );
     if (!cours.length) return res.status(404).json({ error: "Cours non trouvé" });
-    if (cours[0].places_restantes <= 0) return res.status(400).json({ error: "Plus de places disponibles" });
+    if (cours[0].places_restantes <= 0)
+      return res.status(400).json({ error: "Plus de places disponibles" });
 
     const [existing]: any = await pool.query(
       "SELECT * FROM reservation WHERE id_membre = ? AND id_cours = ?",
@@ -64,14 +149,19 @@ router.put("/:id/annuler", authMiddleware, async (req, res) => {
 
     const res_ = rows[0];
     const coursDate = new Date(`${res_.date_cours}T${res_.heure_debut}`);
-    const now = new Date();
-    const diff = coursDate.getTime() - now.getTime();
-    const hours48 = 48 * 60 * 60 * 1000;
+    const diff = coursDate.getTime() - Date.now();
 
-    if (diff < hours48) return res.status(400).json({ error: "Annulation impossible (délai de 48h dépassé)" });
+    if (diff < 48 * 60 * 60 * 1000)
+      return res.status(400).json({ error: "Annulation impossible (délai de 48h dépassé)" });
 
-    await pool.query("UPDATE reservation SET statut = 'annulee' WHERE id_reservation = ?", [req.params.id]);
-    await pool.query("UPDATE cours SET places_restantes = places_restantes + 1 WHERE id_cours = ?", [res_.id_cours]);
+    await pool.query(
+      "UPDATE reservation SET statut = 'annulee' WHERE id_reservation = ?",
+      [req.params.id]
+    );
+    await pool.query(
+      "UPDATE cours SET places_restantes = places_restantes + 1 WHERE id_cours = ?",
+      [res_.id_cours]
+    );
     res.json({ success: true });
   } catch (err: any) {
     req.log.error(err);
